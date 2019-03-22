@@ -58,10 +58,6 @@
   source = "github.com/sietseringers/pflag"
   branch = "headers-in-flag-usage"
 
-[[override]]
-  branch = "master"
-  name = "github.com/timshannon/bolthold"
-
 [prune]
   go-tests = true
   unused-packages = true
