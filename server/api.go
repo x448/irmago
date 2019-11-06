@@ -26,7 +26,7 @@ var Logger *logrus.Logger = logrus.StandardLogger()
 
 // Configuration contains configuration for the irmaserver library and irmad.
 type Configuration struct {
-	// irma_configuration. If not given, this will be popupated using SchemesPath.
+	// irma_configuration. If not given, this will be populated using SchemesPath.
 	IrmaConfiguration *irma.Configuration `json:"-"`
 	// Path to IRMA schemes to parse into IrmaConfiguration (only used if IrmaConfiguration == nil).
 	// If left empty, default value is taken using DefaultSchemesPath().
@@ -54,6 +54,8 @@ type Configuration struct {
 	Email string `json:"email" mapstructure:"email"`
 	// Enable server sent events for status updates (experimental; tends to hang when a reverse proxy is used)
 	EnableSSE bool `json:"enable_sse" mapstructure:"enable_sse"`
+	// If specified, event server messages are sent to this url
+	EventServerURL string `json:"event_server_url" mapstructure:"event_server_url"`
 
 	// Logging verbosity level: 0 is normal, 1 includes DEBUG level, 2 includes TRACE level
 	Verbose int `json:"verbose" mapstructure:"verbose"`

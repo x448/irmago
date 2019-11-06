@@ -174,7 +174,7 @@ func convertHeaders(headers C.struct_HttpHeaders) (map[string][]string, error) {
 }
 
 //export HandleProtocolMessage
-func HandleProtocolMessage(path *C.char, method *C.char, headers C.struct_HttpHeaders, message *C.char) C.struct_HandleProtocolMessageReturn {
+func HandleProtocolMessage(path *C.char, method *C.char, headers C.struct_HttpHeaders, clientIP *C.char, message *C.char) C.struct_HandleProtocolMessageReturn {
 	// Space for result
 	var result C.struct_HandleProtocolMessageReturn
 
@@ -196,7 +196,7 @@ func HandleProtocolMessage(path *C.char, method *C.char, headers C.struct_HttpHe
 	}
 
 	// Prepare return values
-	status, body, session := s.HandleProtocolMessage(C.GoString(path), C.GoString(method), headerMap, []byte(C.GoString(message)))
+	status, body, session := s.HandleProtocolMessage(C.GoString(path), C.GoString(method), headerMap, C.GoString(clientIP), []byte(C.GoString(message)))
 	if session == nil {
 		result.SessionResult = nil
 	} else {

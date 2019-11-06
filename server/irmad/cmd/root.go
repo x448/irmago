@@ -110,6 +110,7 @@ func setFlags(cmd *cobra.Command, production bool) error {
 	flags.String("static-prefix", "/", "Host static files under this URL prefix")
 	flags.StringP("url", "u", defaulturl, "external URL to server to which the IRMA client connects")
 	flags.Bool("sse", false, "Enable server sent for status updates (experimental)")
+	flags.String("event-server-url", "", "if specified, event server messages are sent to this url")
 
 	flags.IntP("port", "p", 8088, "port at which to listen")
 	flags.StringP("listen-addr", "l", "", "address at which to listen (default 0.0.0.0)")
@@ -219,15 +220,16 @@ func configure(cmd *cobra.Command) error {
 			SchemesUpdateInterval: viper.GetInt("schemes-update"),
 			DisableSchemesUpdate:  viper.GetBool("disable-schemes-update") || viper.GetInt("schemes-update") == 0,
 			IssuerPrivateKeysPath: viper.GetString("privkeys"),
-			URL:        viper.GetString("url"),
-			DisableTLS: viper.GetBool("no-tls"),
-			Email:      viper.GetString("email"),
-			EnableSSE:  viper.GetBool("sse"),
-			Verbose:    viper.GetInt("verbose"),
-			Quiet:      viper.GetBool("quiet"),
-			LogJSON:    viper.GetBool("log-json"),
-			Logger:     logger,
-			Production: viper.GetBool("production"),
+			URL:                   viper.GetString("url"),
+			DisableTLS:            viper.GetBool("no-tls"),
+			Email:                 viper.GetString("email"),
+			EnableSSE:             viper.GetBool("sse"),
+			EventServerURL:        viper.GetString("event-server-url"),
+			Verbose:               viper.GetInt("verbose"),
+			Quiet:                 viper.GetBool("quiet"),
+			LogJSON:               viper.GetBool("log-json"),
+			Logger:                logger,
+			Production:            viper.GetBool("production"),
 		},
 		Permissions: requestorserver.Permissions{
 			Disclosing: handlePermission("disclose-perms"),

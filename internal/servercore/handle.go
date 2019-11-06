@@ -1,16 +1,27 @@
 package servercore
 
 import (
+	"encoding/json"
 	"github.com/privacybydesign/gabi"
 	"github.com/privacybydesign/irmago"
 	"github.com/privacybydesign/irmago/server"
 	"github.com/sirupsen/logrus"
+	"net/http"
+	"net/url"
+	"time"
 )
 
 // This file contains the handler functions for the protocol messages, receiving and returning normally
 // Go-typed messages here (JSON (un)marshalling is handled by the router).
 // Maintaining the session state is done here, as well as checking whether the session is in the
 // appropriate status before handling the request.
+
+// Format for sending issue events to the event server
+type IssueEvent struct {
+	When      time.Time
+	Attribute string
+	IP        string
+}
 
 func (session *session) handleDelete() {
 	if session.status.Finished() {
@@ -104,7 +115,7 @@ func (session *session) handlePostDisclosure(disclosure *irma.Disclosure) (*irma
 	return &session.result.ProofStatus, rerr
 }
 
-func (session *session) handlePostCommitments(commitments *irma.IssueCommitmentMessage) ([]*gabi.IssueSignatureMessage, *irma.RemoteError) {
+func (session *session) handlePostCommitments(commitments *irma.IssueCommitmentMessage, clientIP string) ([]*gabi.IssueSignatureMessage, *irma.RemoteError) {
 	if session.status != server.StatusConnected {
 		return nil, server.RemoteError(server.ErrorUnexpectedRequest, "Session not yet started or already finished")
 	}
@@ -159,6 +170,8 @@ func (session *session) handlePostCommitments(commitments *irma.IssueCommitmentM
 		return nil, session.fail(server.ErrorInvalidProofs, "")
 	}
 
+	issueEvents := make([]IssueEvent, len(request.Credentials))
+
 	// Compute CL signatures
 	var sigs []*gabi.IssueSignatureMessage
 	for i, cred := range request.Credentials {
@@ -179,6 +192,19 @@ func (session *session) handlePostCommitments(commitments *irma.IssueCommitmentM
 			return nil, session.fail(server.ErrorIssuanceFailed, err.Error())
 		}
 		sigs = append(sigs, sig)
+		issueEvents[i] = IssueEvent{time.Now(), cred.CredentialTypeID.String(), clientIP}
+	}
+
+	// Send event to event server if necessary
+	if session.conf.EventServerURL != "" {
+		output, err := json.Marshal(struct{ Issuances []IssueEvent }{issueEvents})
+		client := http.Client{Timeout: 1 * time.Second}
+		resp, err := client.PostForm(session.conf.EventServerURL, url.Values{"events": {string(output)}})
+		if err != nil {
+			session.conf.Logger.Warn("Error while sending issue event to event server: ", err)
+		} else if resp.StatusCode != 200 {
+			session.conf.Logger.Warn("Issue event could not be handled by event server: ", resp.Status)
+		}
 	}
 
 	session.setStatus(server.StatusDone)

@@ -289,6 +289,7 @@ func (s *Server) HandleProtocolMessage(
 	path string,
 	method string,
 	headers map[string][]string,
+	clientIP string,
 	message []byte,
 ) (int, []byte, *server.SessionResult) {
 	var start time.Time
@@ -297,7 +298,7 @@ func (s *Server) HandleProtocolMessage(
 		server.LogRequest("client", method, path, "", http.Header(headers), message)
 	}
 
-	status, output, result := s.handleProtocolMessage(path, method, headers, message)
+	status, output, result := s.handleProtocolMessage(path, method, headers, clientIP, message)
 
 	if s.conf.Verbose >= 2 {
 		server.LogResponse(status, time.Now().Sub(start), output)
@@ -310,6 +311,7 @@ func (s *Server) handleProtocolMessage(
 	path string,
 	method string,
 	headers map[string][]string,
+	clientIP string,
 	message []byte,
 ) (status int, output []byte, result *server.SessionResult) {
 	// Parse path into session and action
@@ -406,7 +408,7 @@ func (s *Server) handleProtocolMessage(
 				status, output = server.JsonResponse(nil, session.fail(server.ErrorMalformedInput, err.Error()))
 				return
 			}
-			status, output = server.JsonResponse(session.handlePostCommitments(commitments))
+			status, output = server.JsonResponse(session.handlePostCommitments(commitments, clientIP))
 			session.responseCache = responseCache{message: message, response: output, status: status, sessionStatus: server.StatusDone}
 			return
 		}

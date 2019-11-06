@@ -6,6 +6,7 @@ package irmaserver
 
 import (
 	"io/ioutil"
+	"net"
 	"net/http"
 
 	"github.com/go-errors/errors"
@@ -138,7 +139,8 @@ func (s *Server) HandlerFunc() http.HandlerFunc {
 			return
 		}
 
-		status, response, result := s.HandleProtocolMessage(r.URL.Path, r.Method, r.Header, message)
+		clientIP, _, _ := net.SplitHostPort(r.RemoteAddr)
+		status, response, result := s.HandleProtocolMessage(r.URL.Path, r.Method, r.Header, clientIP, message)
 		w.WriteHeader(status)
 		_, err = w.Write(response)
 		if err != nil {
