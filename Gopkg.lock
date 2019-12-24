@@ -117,6 +117,22 @@
   version = "v1.0.0"
 
 [[projects]]
+  digest = "1:b46f50677ef33284ebde2b285a42b707ff9e1de1f37328d91869859c929ebbd2"
+  name = "github.com/go-redis/redis"
+  packages = [
+    ".",
+    "internal",
+    "internal/consistenthash",
+    "internal/hashtag",
+    "internal/pool",
+    "internal/proto",
+    "internal/util",
+  ]
+  pruneopts = "UT"
+  revision = "7f69d5e32072d151eb6936cbe2306413e8117488"
+  version = "v6.15.6"
+
+[[projects]]
   branch = "master"
   digest = "1:07671f8997086ed115824d1974507d2b147d1e0463675ea5dbf3be89b1c2c563"
   name = "github.com/hashicorp/errwrap"
@@ -183,14 +199,6 @@
   version = "v1.0"
 
 [[projects]]
-  branch = "master"
-  digest = "1:73f8f3d39f0f3100420067b1ea4d98533ac96526faef38e3646ebf43aa4ff246"
-  name = "github.com/jasonlvhit/gocron"
-  packages = ["."]
-  pruneopts = "UT"
-  revision = "54194c9749d48b073c9aeb2c787b6882e95dd0cd"
-
-[[projects]]
   digest = "1:0a69a1c0db3591fcefb47f115b224592c8dfa4368b7ba9fae509d5e16cdc95c8"
   name = "github.com/konsorten/go-windows-terminal-sequences"
   packages = ["."]
@@ -205,6 +213,14 @@
   pruneopts = "UT"
   revision = "c2353362d570a7bfa228149c62842019201cfb71"
   version = "v1.8.0"
+
+[[projects]]
+  branch = "master"
+  digest = "1:216e932105cda4e19b7b499c8f1708f7d5748d9791cbb132e23e07aa9f6c2fc7"
+  name = "github.com/marcsantiago/gocron"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "d98f98b8d54e92b12767641e7c5a298573b45d9b"
 
 [[projects]]
   digest = "1:c658e84ad3916da105a761660dcaeb01e63416c8ec7bc62256a9b411a05fcd67"
@@ -481,7 +497,7 @@
     "github.com/go-chi/cors",
     "github.com/go-errors/errors",
     "github.com/hashicorp/go-retryablehttp",
-    "github.com/jasonlvhit/gocron",
+    "github.com/marcsantiago/gocron",
     "github.com/mdp/qrterminal",
     "github.com/mitchellh/mapstructure",
     "github.com/pkg/errors",

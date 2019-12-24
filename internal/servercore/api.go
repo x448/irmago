@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/go-errors/errors"
-	"github.com/jasonlvhit/gocron"
+	"github.com/marcsantiago/gocron"
 	"github.com/privacybydesign/gabi"
 	"github.com/privacybydesign/gabi/big"
 	"github.com/privacybydesign/irmago"
