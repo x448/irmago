@@ -10,6 +10,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"time"
@@ -26,8 +27,10 @@ import (
 type HTTPTransport struct {
 	Server  string
 	client  *retryablehttp.Client
-	headers map[string]string
+	headers http.Header
 }
+
+var HTTPHeaders = map[string]http.Header{}
 
 // Logger is used for logging. If not set, init() will initialize it to logrus.StandardLogger().
 var Logger *logrus.Logger
@@ -48,9 +51,8 @@ func NewHTTPTransport(serverURL string) *HTTPTransport {
 		transportlogger = log.New(ioutil.Discard, "", 0)
 	}
 
-	url := serverURL
-	if serverURL != "" && !strings.HasSuffix(url, "/") { // TODO fix this
-		url += "/"
+	if serverURL != "" && !strings.HasSuffix(serverURL, "/") {
+		serverURL += "/"
 	}
 
 	// Create a transport that dials with a SIGPIPE handler (which is only active on iOS)
@@ -83,16 +85,27 @@ func NewHTTPTransport(serverURL string) *HTTPTransport {
 		},
 	}
 
+	var host string
+	u, err := url.Parse(serverURL)
+	if err != nil {
+		Logger.Warnf("failed to parse URL %s: %s", serverURL, err.Error())
+	} else {
+		host = u.Host
+	}
+	headers := HTTPHeaders[host].Clone()
+	if headers == nil {
+		headers = http.Header{}
+	}
 	return &HTTPTransport{
-		Server:  url,
-		headers: map[string]string{},
+		Server:  serverURL,
+		headers: headers,
 		client:  client,
 	}
 }
 
 // SetHeader sets a header to be sent in requests.
 func (transport *HTTPTransport) SetHeader(name, val string) {
-	transport.headers[name] = val
+	transport.headers.Set(name, val)
 }
 
 func (transport *HTTPTransport) request(
@@ -103,7 +116,7 @@ func (transport *HTTPTransport) request(
 	if err != nil {
 		return nil, &SessionError{ErrorType: ErrorTransport, Err: err}
 	}
-
+	req.Header = transport.headers.Clone()
 	req.Header.Set("User-Agent", "irmago")
 	if reader != nil {
 		if isstr {
@@ -112,10 +125,6 @@ func (transport *HTTPTransport) request(
 			req.Header.Set("Content-Type", "application/json; charset=UTF-8")
 		}
 	}
-	for name, val := range transport.headers {
-		req.Header.Set(name, val)
-	}
-
 	res, err := transport.client.Do(&req)
 	if err != nil {
 		return nil, &SessionError{ErrorType: ErrorTransport, Err: err}
