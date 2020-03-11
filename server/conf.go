@@ -55,6 +55,8 @@ type Configuration struct {
 	// Static session requests after parsing
 	StaticSessionRequests map[string]irma.RequestorRequest `json:"-"`
 
+	RefreshURLs map[irma.CredentialTypeIdentifier]string
+
 	// Used in the "iss" field of result JWTs from /result-jwt and /getproof
 	JwtIssuer string `json:"jwt_issuer" mapstructure:"jwt_issuer"`
 	// Private key to sign result JWTs with. If absent, /result-jwt and /getproof are disabled.

@@ -1,17 +1,32 @@
 package irmaclient
 
 import (
+	"reflect"
+
 	"github.com/go-errors/errors"
 	"github.com/privacybydesign/irmago"
+	"github.com/privacybydesign/irmago/server"
 )
 
 // keyshareEnrollmentHandler handles the keyshare attribute issuance session
 // after registering to a new keyshare server.
-type keyshareEnrollmentHandler struct {
-	pin    string
-	client *Client
-	kss    *keyshareServer
-}
+type (
+	keyshareEnrollmentHandler struct {
+		pin    string
+		client *Client
+		kss    *keyshareServer
+	}
+
+	refreshHandler struct {
+		Handler
+		client    *Client
+		dismisser SessionDismisser
+		credhash  string
+		disclosed bool
+		token     string
+		choice    *irma.DisclosureChoice
+	}
+)
 
 // Force keyshareEnrollmentHandler to implement the Handler interface
 var _ Handler = (*keyshareEnrollmentHandler)(nil)
@@ -85,4 +100,67 @@ func (h *keyshareEnrollmentHandler) UnsatisfiableRequest(request irma.SessionReq
 }
 func (h *keyshareEnrollmentHandler) ClientReturnURLSet(clientReturnURL string) {
 	h.fail(errors.New("Keyshare enrollment session unexpectedly found an external return url"))
+}
+
+func (h *refreshHandler) RequestVerificationPermission(request *irma.DisclosureRequest, candidates [][][]*irma.AttributeIdentifier, ServerName irma.TranslatedString, callback PermissionHandler) {
+	// verify that the disclosure request is exactly what it should be according to the scheme
+	cred, _, _ := h.client.credentialByHash(h.credhash) // err != nil as this would have happened earlier
+	expectedRequest, _ := cred.CredentialType().RefreshDisclosureRequest()
+	if !reflect.DeepEqual(request.Disclose, expectedRequest.Disclose) {
+		h.dismisser.Dismiss()
+		h.Failure(&irma.SessionError{ErrorType: irma.ErrorServerResponse})
+		return
+	}
+
+	// in case the user has other instances of the same type of our credential,
+	// filter them away from the options
+	var filtered [][][]*irma.AttributeIdentifier
+	for _, attrlistlist := range candidates {
+		var newlistlist [][]*irma.AttributeIdentifier
+		for _, attrlist := range attrlistlist {
+			var newlist []*irma.AttributeIdentifier
+			for _, attr := range attrlist {
+				if attr.CredentialHash == h.credhash {
+					newlist = append(newlist, attr)
+				}
+			}
+			newlistlist = append(newlistlist, newlist)
+		}
+		filtered = append(filtered, newlistlist)
+	}
+
+	// ask deferred handler for permission, storing the user's choice
+	h.Handler.RequestVerificationPermission(request, filtered, ServerName, func(proceed bool, choice *irma.DisclosureChoice) {
+		h.choice = choice
+		callback(proceed, choice)
+	})
+}
+
+func (h *refreshHandler) Success(_ string) {
+	// At the end of the disclosure session, we start the issuance session;
+	// at the end of the issuance session we are done.
+	if h.disclosed {
+		h.Handler.Success("")
+		return
+	}
+	h.disclosed = true
+
+	// Retrieve issuance session
+	cred, _, _ := h.client.credentialByHash(h.credhash)
+	transport := irma.NewHTTPTransport(cred.CredentialType().RefreshURL)
+	var qr irma.Qr
+	if err := transport.Post(server.ComponentRefresh+"/request/"+h.token, &qr, nil); err != nil {
+		h.Failure(&irma.SessionError{ErrorType: irma.ErrorServerResponse, Err: err})
+		return
+	}
+
+	// Start issuance session reusing this handler
+	h.dismisser = h.client.newQrSession(&qr, h)
+}
+
+func (h *refreshHandler) RequestIssuancePermission(_ *irma.IssuanceRequest, _ [][][]*irma.AttributeIdentifier, _ irma.TranslatedString, callback PermissionHandler) {
+	// This will be a combined issuance/disclosure session in which the server requires us
+	// to disclose exactly the same attributes as before. We just reuse the previously made
+	// disclosure choice and accept.
+	callback(true, h.choice)
 }

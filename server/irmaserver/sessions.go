@@ -26,6 +26,7 @@ type session struct {
 	rrequest         irma.RequestorRequest
 	request          irma.SessionRequest
 	legacyCompatible bool // if the request is convertible to pre-condiscon format
+	refreshing       irma.CredentialTypeIdentifier
 
 	status        server.Status
 	prevStatus    server.Status

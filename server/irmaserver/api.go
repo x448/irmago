@@ -118,7 +118,13 @@ func (s *Server) HandlerFunc() http.HandlerFunc {
 			r.Post("/proofs", s.handleSessionProofs)
 		})
 	})
+
 	r.Post("/session/{name}", s.handleStaticMessage)
+
+	r.Route("/refresh", func(r chi.Router) {
+		r.Post("/start/{id}", s.handleRefreshStart)
+		r.Post("/request/{token}", s.handleRefreshIssuance)
+	})
 
 	r.Route("/revocation/{id}", func(r chi.Router) {
 		r.NotFound(errorWriter(notfound, server.WriteBinaryResponse))

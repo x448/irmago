@@ -3,6 +3,8 @@ package sessiontest
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"reflect"
@@ -351,4 +353,39 @@ func TestOptionalDisclosure(t *testing.T) {
 		result := requestorSessionHelper(t, args.request, client)
 		require.True(t, reflect.DeepEqual(args.disclosed, result.Disclosed))
 	}
+}
+
+func TestRefresh(t *testing.T) {
+	client, handler := parseStorage(t)
+	defer test.ClearTestStorage(t, handler.storage)
+	StartRefreshServer(t)
+	defer StopRefreshServer()
+	StartIrmaServer(t, false)
+	defer StopIrmaServer()
+
+	// start refresh sessions
+	id := irma.NewCredentialTypeIdentifier("irma-demo.RU.studentCard")
+	cred := find(t, client, id)
+	require.True(t, cred.SignedOn.Before(irma.Timestamp(time.Now().Add(-1*irma.ExpiryFactor*time.Second))))
+	clientChan := make(chan *SessionResult)
+	_, err := client.RefreshCredential(cred.Hash, &TestHandler{t: t, c: clientChan, client: client})
+	require.NoError(t, err)
+
+	// wait to complete
+	clientResult := <-clientChan
+	require.Empty(t, clientResult)
+
+	// check that our credential instance is new
+	cred = find(t, client, id)
+	require.True(t, cred.SignedOn.After(irma.Timestamp(time.Now().Add(-1*irma.ExpiryFactor*time.Second))))
+}
+
+func find(t *testing.T, client *irmaclient.Client, id irma.CredentialTypeIdentifier) *irma.CredentialInfo {
+	for _, cred := range client.CredentialInfoList() {
+		if id == irma.NewCredentialTypeIdentifier(fmt.Sprintf("%s.%s.%s", cred.SchemeManagerID, cred.IssuerID, cred.ID)) {
+			return cred
+		}
+	}
+	require.NoError(t, errors.New("not found"))
+	return nil
 }

@@ -67,6 +67,7 @@ const (
 	ComponentRevocation = "revocation"
 	ComponentSession    = "session"
 	ComponentStatic     = "static"
+	ComponentRefresh    = "refresh"
 )
 
 // Remove this when dropping support for legacy pre-condiscon session requests

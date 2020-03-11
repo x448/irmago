@@ -3,6 +3,7 @@ package irma
 import (
 	"crypto/rsa"
 	"encoding/base64"
+	"encoding/json"
 	"encoding/xml"
 	"io/ioutil"
 	"os"
@@ -1406,6 +1407,18 @@ func (conf *Configuration) validateCredentialType(manager *SchemeManager, issuer
 	}
 	if err := common.AssertPathExists(filepath.Join(dir, "logo.png")); err != nil {
 		conf.Warnings = append(conf.Warnings, fmt.Sprintf("Credential type %s has no logo.png", credid.String()))
+	}
+	if cred.RefreshURL == "" && cred.RefreshDisclosure != "" {
+		return errors.Errorf("Credential type %s has RefreshURL but no RefreshDisclosure", credid.String())
+	}
+	if cred.RefreshURL != "" && cred.RefreshDisclosure == "" {
+		return errors.Errorf("Credential type %s has RefreshDisclosure but no RefreshURL", credid.String())
+	}
+	var disclosure AttributeConDisCon
+	if cred.RefreshDisclosure != "" {
+		if err := json.Unmarshal([]byte(cred.RefreshDisclosure), &disclosure); err != nil {
+			return errors.WrapPrefix(err, "Credential type "+credid.String()+" has invalid RefreshDisclosure", 0)
+		}
 	}
 	return conf.validateAttributes(cred)
 }

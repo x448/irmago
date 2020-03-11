@@ -1,6 +1,7 @@
 package irma
 
 import (
+	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"path/filepath"
@@ -69,7 +70,9 @@ type CredentialType struct {
 	RevocationServers     []string         `xml:"RevocationServers>RevocationServer"`
 	RevocationUpdateCount uint64
 	RevocationUpdateSpeed uint64
-	RevocationIndex       int              `xml:"-"`
+	RevocationIndex       int `xml:"-"`
+	RefreshDisclosure     string
+	RefreshURL            string
 	XMLVersion            int              `xml:"version,attr"`
 	XMLName               xml.Name         `xml:"IssueSpecification"`
 	IssueURL              TranslatedString `xml:"IssueURL"`
@@ -204,6 +207,21 @@ func (ct *CredentialType) Logo(conf *Configuration) string {
 		return ""
 	}
 	return path
+}
+
+func (ct *CredentialType) RefreshDisclosureRequest() (*DisclosureRequest, error) {
+	if ct.RefreshDisclosure == "" {
+		return nil, nil
+	}
+	var disclose AttributeConDisCon
+	err := json.Unmarshal([]byte(ct.RefreshDisclosure), &disclose)
+	if err != nil {
+		return nil, err
+	}
+	return &DisclosureRequest{
+		BaseRequest: BaseRequest{LDContext: LDContextDisclosureRequest},
+		Disclose:    disclose,
+	}, nil
 }
 
 // Identifier returns the identifier of the specified issuer description.

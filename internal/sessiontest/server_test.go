@@ -1,6 +1,8 @@
 package sessiontest
 
 import (
+	"encoding/json"
+	"io/ioutil"
 	"net/http"
 	"path/filepath"
 	"testing"
@@ -21,6 +23,7 @@ var (
 	irmaServer              *irmaserver.Server
 	irmaServerConfiguration *server.Configuration
 	requestorServer         *requestorserver.Server
+	refreshServer           *http.Server
 
 	logger   = logrus.New()
 	testdata = test.FindTestdataFolder(nil)
@@ -70,6 +73,9 @@ func StartIrmaServer(t *testing.T, updatedIrmaConf bool) {
 			revocationTestCred:  {RevocationServerURL: "http://localhost:48683", SSE: true},
 			revKeyshareTestCred: {RevocationServerURL: "http://localhost:48683"},
 		},
+		RefreshURLs: map[irma.CredentialTypeIdentifier]string{
+			irma.NewCredentialTypeIdentifier("irma-demo.RU.studentCard"): "http://localhost:48686/",
+		},
 	}
 	irmaServer, err = irmaserver.New(irmaServerConfiguration)
 
@@ -86,6 +92,50 @@ func StartIrmaServer(t *testing.T, updatedIrmaConf bool) {
 func StopIrmaServer() {
 	irmaServer.Stop()
 	_ = httpServer.Close()
+}
+
+func refresh(t *testing.T, w http.ResponseWriter, r *http.Request) {
+	bts, err := ioutil.ReadAll(r.Body)
+	require.NoError(t, err)
+	require.NoError(t, r.Body.Close())
+
+	var result server.SessionResult
+	require.NoError(t, json.Unmarshal(bts, &result))
+	require.Len(t, result.Disclosed, 1)
+	require.Len(t, result.Disclosed[0], 1)
+	require.NotNil(t, result.Disclosed[0][0].RawValue)
+	require.Equal(t, "456", *result.Disclosed[0][0].RawValue)
+
+	cred := &irma.CredentialRequest{
+		CredentialTypeID: irma.NewCredentialTypeIdentifier("irma-demo.RU.studentCard"),
+		Attributes: map[string]string{
+			"level":             "42",
+			"studentCardNumber": "123",
+			"studentID":         "456",
+			"university":        "Radboud",
+		},
+	}
+	bts, err = json.Marshal(irma.NewIssuanceRequest([]*irma.CredentialRequest{cred}))
+	require.NoError(t, err)
+
+	logger.Trace("refreshing ", string(bts))
+	_, err = w.Write(bts)
+	require.NoError(t, err)
+}
+
+func StartRefreshServer(t *testing.T) {
+	refreshServer = &http.Server{
+		Addr: ":48686",
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			refresh(t, w, r)
+		})}
+	go func() {
+		_ = refreshServer.ListenAndServe()
+	}()
+}
+
+func StopRefreshServer() {
+	_ = refreshServer.Close()
 }
 
 var IrmaServerConfiguration = &requestorserver.Configuration{
