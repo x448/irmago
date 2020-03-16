@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -16,7 +15,6 @@ import (
 	"github.com/privacybydesign/gabi/revocation"
 	"github.com/privacybydesign/irmago"
 	"github.com/privacybydesign/irmago/internal/common"
-	"github.com/privacybydesign/irmago/server"
 
 	"github.com/sirupsen/logrus"
 )
@@ -427,16 +425,13 @@ func (client *Client) RefreshCredential(hash string, handler Handler) (SessionDi
 	refreshHandler := &refreshHandler{Handler: handler, client: client, credhash: hash}
 	s := client.newQrSession(&irma.Qr{
 		Type: irma.ActionRedirect,
-		URL:  fmt.Sprintf("%s%s/start/%s", typ.RefreshURL, server.ComponentRefresh, typ.Identifier().String()),
+		URL:  fmt.Sprintf("%srefresh/%s", typ.RefreshURL, typ.Identifier().String()),
 	}, refreshHandler)
 	if s == nil {
 		return nil, errors.New("failed to start refresh session")
 	}
 
-	// We'll need the session token to retrieve the issuance session after disclosure
-	url := s.(*session).ServerURL
-	url = url[:len(url)-1] // strip trailing /
-	refreshHandler.token = url[strings.LastIndex(url, "/")+1:]
+	refreshHandler.disclosureURL = s.(*session).ServerURL
 	refreshHandler.dismisser = s
 
 	return s, nil

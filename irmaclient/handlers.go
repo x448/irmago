@@ -5,7 +5,6 @@ import (
 
 	"github.com/go-errors/errors"
 	"github.com/privacybydesign/irmago"
-	"github.com/privacybydesign/irmago/server"
 )
 
 // keyshareEnrollmentHandler handles the keyshare attribute issuance session
@@ -19,12 +18,12 @@ type (
 
 	refreshHandler struct {
 		Handler
-		client    *Client
-		dismisser SessionDismisser
-		credhash  string
-		disclosed bool
-		token     string
-		choice    *irma.DisclosureChoice
+		client        *Client
+		dismisser     SessionDismisser
+		credhash      string
+		disclosed     bool
+		disclosureURL string
+		choice        *irma.DisclosureChoice
 	}
 )
 
@@ -146,10 +145,9 @@ func (h *refreshHandler) Success(_ string) {
 	h.disclosed = true
 
 	// Retrieve issuance session
-	cred, _, _ := h.client.credentialByHash(h.credhash)
-	transport := irma.NewHTTPTransport(cred.CredentialType().RefreshURL)
+	transport := irma.NewHTTPTransport(h.disclosureURL)
 	var qr irma.Qr
-	if err := transport.Post(server.ComponentRefresh+"/request/"+h.token, &qr, nil); err != nil {
+	if err := transport.Post("next", &qr, nil); err != nil {
 		h.Failure(&irma.SessionError{ErrorType: irma.ErrorServerResponse, Err: err})
 		return
 	}

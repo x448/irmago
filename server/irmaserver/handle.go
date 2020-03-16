@@ -300,6 +300,53 @@ func (s *Server) handleSessionGet(w http.ResponseWriter, r *http.Request) {
 	server.WriteResponse(w, res, err)
 }
 
+func (s *Server) handleSessionNext(w http.ResponseWriter, r *http.Request) {
+	disclosure := r.Context().Value("session").(*session)
+	id := disclosure.refreshing
+	if id.Empty() {
+		server.WriteResponse(w, nil, server.RemoteError(server.ErrorUnexpectedRequest, ""))
+		return
+	}
+	// mark refreshing as consumed
+	disclosure.refreshing = irma.NewCredentialTypeIdentifier("")
+	s.sessions.update(disclosure)
+
+	url := s.conf.RefreshURLs[id]
+	if url == "" {
+		server.WriteResponse(w, nil, server.RemoteError(server.ErrorUnknown, ""))
+		return
+	}
+	if disclosure.result == nil || disclosure.result.ProofStatus != irma.ProofStatusValid {
+		server.WriteResponse(w, nil, server.RemoteError(server.ErrorMalformedInput, ""))
+		return
+	}
+
+	var req irma.IssuanceRequest
+	err := irma.NewHTTPTransport("").Post(url, &req, disclosure.result)
+	if err != nil {
+		server.WriteResponse(w, nil, server.RemoteError(server.ErrorUnknown, ""))
+		return
+	}
+
+	for _, attrlist := range disclosure.result.Disclosed {
+		var con irma.AttributeCon
+		for _, attr := range attrlist {
+			con = append(con, irma.AttributeRequest{
+				Type:  attr.Identifier,
+				Value: attr.RawValue,
+			})
+		}
+		req.Disclose = append(req.Disclose, irma.AttributeDisCon{con})
+	}
+
+	qr, _, err := s.StartSession(&req, nil)
+	if err != nil {
+		server.WriteResponse(w, nil, server.RemoteError(server.ErrorMalformedInput, err.Error()))
+		return
+	}
+	server.WriteResponse(w, qr, nil)
+}
+
 func (s *Server) handleStaticMessage(w http.ResponseWriter, r *http.Request) {
 	rrequest := s.conf.StaticSessionRequests[chi.URLParam(r, "name")]
 	if rrequest == nil {
@@ -424,7 +471,7 @@ func (s *Server) handleRevocationPostIssuanceRecord(w http.ResponseWriter, r *ht
 	return
 }
 
-func (s *Server) handleRefreshStart(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 	id := irma.NewCredentialTypeIdentifier(chi.URLParam(r, "id"))
 	url := s.conf.RefreshURLs[id]
 	if url == "" {
@@ -449,58 +496,5 @@ func (s *Server) handleRefreshStart(w http.ResponseWriter, r *http.Request) {
 	session := s.sessions.get(token)
 	session.refreshing = id
 	s.sessions.update(session)
-	server.WriteResponse(w, qr, nil)
-}
-
-func (s *Server) handleRefreshIssuance(w http.ResponseWriter, r *http.Request) {
-	token := chi.URLParam(r, "token")
-	disclosure := s.sessions.clientGet(token)
-	if disclosure == nil {
-		s.conf.Logger.WithField("clientToken", token).Warn("Session not found")
-		server.WriteError(w, server.ErrorSessionUnknown, "")
-		return
-	}
-	id := disclosure.refreshing
-	if id.Empty() {
-		server.WriteResponse(w, nil, server.RemoteError(server.ErrorUnexpectedRequest, ""))
-		return
-	}
-	// mark refreshing as consumed
-	disclosure.refreshing = irma.NewCredentialTypeIdentifier("")
-	s.sessions.update(disclosure)
-
-	url := s.conf.RefreshURLs[id]
-	if url == "" {
-		server.WriteResponse(w, nil, server.RemoteError(server.ErrorUnknown, ""))
-		return
-	}
-	if disclosure.result == nil || disclosure.result.ProofStatus != irma.ProofStatusValid {
-		server.WriteResponse(w, nil, server.RemoteError(server.ErrorMalformedInput, ""))
-		return
-	}
-
-	var req irma.IssuanceRequest
-	err := irma.NewHTTPTransport("").Post(url, &req, disclosure.result)
-	if err != nil {
-		server.WriteResponse(w, nil, server.RemoteError(server.ErrorUnknown, ""))
-		return
-	}
-
-	for _, attrlist := range disclosure.result.Disclosed {
-		var con irma.AttributeCon
-		for _, attr := range attrlist {
-			con = append(con, irma.AttributeRequest{
-				Type:  attr.Identifier,
-				Value: attr.RawValue,
-			})
-		}
-		req.Disclose = append(req.Disclose, irma.AttributeDisCon{con})
-	}
-
-	qr, _, err := s.StartSession(&req, nil)
-	if err != nil {
-		server.WriteResponse(w, nil, server.RemoteError(server.ErrorMalformedInput, err.Error()))
-		return
-	}
 	server.WriteResponse(w, qr, nil)
 }
