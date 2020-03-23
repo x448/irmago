@@ -145,6 +145,29 @@ var clientUpdates = []func(client *Client) error{
 			return client.storage.TxStoreUpdates(tx, updates)
 		})
 	},
+
+	// 9: bbolt -> encrypted bbolt
+	func(client *Client) error {
+		// TODO: check for symmetric key
+
+		// Load unencrypted attributes and store encrypted under symmetric key
+		return client.storage.Transaction(func(tx *transaction) error {
+			bucket := tx.Bucket([]byte("attrs"))
+			if bucket == nil {
+				// there are no attributes, nothing to be done
+				return nil
+			}
+			bucket.ForEach(func(k, v []byte) error {
+				encValue, err := Encrypt(client.storage.cipher, v)
+				if err != nil {
+					return err
+				}
+				bucket.Put(k, encValue)
+				return nil
+			})
+			return nil
+		})
+	},
 }
 
 // update performs any function from clientUpdates that has not

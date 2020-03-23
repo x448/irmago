@@ -48,7 +48,7 @@ require (
 	github.com/x-cray/logrus-prefixed-formatter v0.5.2
 	github.com/x448/float16 v0.8.4 // indirect
 	go.etcd.io/bbolt v1.3.2
-	golang.org/x/crypto v0.0.0-20200204104054-c9f3fb736b72 // indirect
+	golang.org/x/crypto v0.0.0-20200204104054-c9f3fb736b72
 )
 
 replace astuart.co/go-sse => github.com/sietseringers/go-sse v0.0.0-20200223201439-6cc042ab6f6d

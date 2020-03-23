@@ -1,7 +1,9 @@
 package irmaclient
 
 import (
+	"crypto/cipher"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"path/filepath"
 	"time"
@@ -23,6 +25,7 @@ type storage struct {
 	storagePath   string
 	db            *bbolt.DB
 	Configuration *irma.Configuration
+	cipher        cipher.AEAD
 }
 
 type transaction struct {
@@ -59,6 +62,14 @@ func (s *storage) Open() error {
 		return err
 	}
 	s.db, err = bbolt.Open(s.path(databaseFile), 0600, &bbolt.Options{Timeout: 1 * time.Second})
+
+	// TODO: Get key from keyshareserver
+	kek, _ := hex.DecodeString("77217A25432A462D4A614E645267556B58703273357638782F413F4428472B4B")
+	s.cipher, err = NewAESGCM(kek) // read cipher from configuration?
+	if err != nil {
+		return err
+	}
+
 	return err
 }
 
@@ -80,12 +91,17 @@ func (s *storage) txStore(tx *transaction, bucketName string, key string, value 
 	if err != nil {
 		return err
 	}
-	btsValue, err := json.Marshal(value)
+	bts, err := json.Marshal(value)
 	if err != nil {
 		return err
 	}
-
-	return b.Put([]byte(key), btsValue)
+	if bucketName == attributesBucket {
+		bts, err = Encrypt(s.cipher, bts)
+		if err != nil {
+			return err
+		}
+	}
+	return b.Put([]byte(key), bts)
 }
 
 func (s *storage) txDelete(tx *transaction, bucketName string, key string) error {
@@ -103,8 +119,12 @@ func (s *storage) txLoad(tx *transaction, bucketName string, key string, dest in
 		return false, nil
 	}
 	bts := b.Get([]byte(key))
+
+	if bucketName == attributesBucket {
+		bts, err = Decrypt(s.cipher, bts)
+	}
 	b.Sequence()
-	if bts == nil {
+	if bts == nil || err != nil {
 		return false, nil
 	}
 	return true, json.Unmarshal(bts, dest)
@@ -296,7 +316,13 @@ func (s *storage) LoadAttributes() (list map[irma.CredentialTypeIdentifier][]*ir
 			credTypeID := irma.NewCredentialTypeIdentifier(string(key))
 
 			var attrlistlist []*irma.AttributeList
-			err = json.Unmarshal(value, &attrlistlist)
+			decrypted, err := Decrypt(s.cipher, value)
+			if err != nil {
+				return err
+			}
+
+			err = json.Unmarshal(decrypted, &attrlistlist)
+
 			if err != nil {
 				return err
 			}
