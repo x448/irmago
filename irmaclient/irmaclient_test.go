@@ -123,7 +123,7 @@ func TestCandidates(t *testing.T) {
 	request := irma.NewDisclosureRequest(attrtype)
 	disjunction := request.Disclose[0]
 	request.ProtocolVersion = &irma.ProtocolVersion{Major: 2, Minor: 6}
-	attrs, satisfiable, err := client.candidatesDisCon(request.Base(), disjunction)
+	attrs, satisfiable, err := client.candidatesDisCon(request, disjunction)
 	require.NoError(t, err)
 	require.True(t, satisfiable)
 	require.NotNil(t, attrs)
@@ -136,7 +136,7 @@ func TestCandidates(t *testing.T) {
 	// then our attribute is a candidate
 	reqval := "456"
 	disjunction[0][0].Value = &reqval
-	attrs, satisfiable, err = client.candidatesDisCon(request.Base(), disjunction)
+	attrs, satisfiable, err = client.candidatesDisCon(request, disjunction)
 	require.NoError(t, err)
 	require.True(t, satisfiable)
 	require.NotNil(t, attrs)
@@ -149,7 +149,7 @@ func TestCandidates(t *testing.T) {
 	// then it is NOT a match.
 	reqval = "foobarbaz"
 	disjunction[0][0].Value = &reqval
-	attrs, satisfiable, err = client.candidatesDisCon(request.Base(), disjunction)
+	attrs, satisfiable, err = client.candidatesDisCon(request, disjunction)
 	require.NoError(t, err)
 	require.False(t, satisfiable)
 	require.NotNil(t, attrs)
@@ -159,7 +159,7 @@ func TestCandidates(t *testing.T) {
 
 	// A required value of nil counts as no requirement on the value, so our attribute is a candidate
 	disjunction[0][0].Value = nil
-	attrs, satisfiable, err = client.candidatesDisCon(request.Base(), disjunction)
+	attrs, satisfiable, err = client.candidatesDisCon(request, disjunction)
 	require.NoError(t, err)
 	require.True(t, satisfiable)
 	require.NotNil(t, attrs)
@@ -168,14 +168,31 @@ func TestCandidates(t *testing.T) {
 	require.Equal(t, attrs[0][0].Type, attrtype)
 	require.True(t, attrs[0][0].Present())
 
-	// Require an attribute we do not have
-	disjunction[0][0] = irma.NewAttributeRequest("irma-demo.MijnOverheid.ageLower.over12")
-	attrs, satisfiable, err = client.candidatesDisCon(request.Base(), disjunction)
+	// Require an attribute we do not have: a "non-present" credential (i.e. without hash)
+	// is included with the candidates as suggestion to the user
+	disjunction[0][0] = irma.NewAttributeRequest("irma-demo.MijnOverheid.fullName.familyname")
+	attrs, satisfiable, err = client.candidatesDisCon(request, disjunction)
 	require.NoError(t, err)
 	require.False(t, satisfiable)
 	require.Len(t, attrs, 1)
 	require.NotNil(t, attrs[0])
 	require.False(t, attrs[0][0].Present())
+
+	// When the nonpresent attribute comes from a credential type that is being issued,
+	// that credential type is not included with the candidates as suggestion
+	isreq := irma.NewIssuanceRequest([]*irma.CredentialRequest{{
+		CredentialTypeID: irma.NewCredentialTypeIdentifier("irma-demo.MijnOverheid.root"),
+		Attributes:       map[string]string{"BSN": "12345"},
+	}})
+	isreq.Disclose = irma.AttributeConDisCon{{
+		{},
+		{irma.NewAttributeRequest("irma-demo.MijnOverheid.root.BSN")},
+	}}
+	attrs, satisfiable, err = client.candidatesDisCon(isreq, isreq.Disclose[0])
+	require.NoError(t, err)
+	require.True(t, satisfiable)
+	// we don't have irma-demo.MijnOverheid.root, the empty conjunction gives the only candidate
+	require.Len(t, attrs, 1)
 }
 
 func TestCandidateConjunctionOrder(t *testing.T) {
