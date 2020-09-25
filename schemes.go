@@ -1069,7 +1069,7 @@ func (scheme *SchemeManager) verifyFiles(conf *Configuration) error {
 			return err
 		}
 		if !exists {
-			continue
+			return errors.Errorf("Missing file %s", file)
 		}
 		// Don't care about the actual bytes
 		if _, _, err = conf.readSignedFile(scheme.index, scheme.path(), file); err != nil {
