@@ -197,6 +197,7 @@ func (client *Client) newQrSession(qr *irma.Qr, handler Handler) SessionDismisse
 	close(doneChannel)
 	session := &session{
 		ServerURL:      qr.URL,
+		RequestorInfo:  requestorInfo(qr.URL, client.Configuration),
 		Hostname:       u.Hostname(),
 		transport:      irma.NewHTTPTransport(qr.URL, !client.Preferences.DeveloperMode),
 		Action:         qr.Type,
@@ -254,7 +255,7 @@ func (session *session) getSessionInfo() {
 	session.processSessionInfo()
 }
 
-func requestorInfo(serverURL string, request irma.SessionRequest, conf *irma.Configuration) *irma.RequestorInfo {
+func requestorInfo(serverURL string, conf *irma.Configuration) *irma.RequestorInfo {
 	if serverURL == "" {
 		return nil
 	}
@@ -310,8 +311,6 @@ func (session *session) processSessionInfo() {
 		session.Version = irma.NewVersion(2, 0)
 		baserequest.ProtocolVersion = session.Version
 	}
-
-	session.RequestorInfo = requestorInfo(session.ServerURL, session.request, session.client.Configuration)
 
 	if session.Action == irma.ActionIssuing {
 		ir := session.request.(*irma.IssuanceRequest)
