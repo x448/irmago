@@ -2,6 +2,7 @@ package myirmaserver
 
 import (
 	"database/sql"
+	"net/http"
 	"time"
 
 	"github.com/go-errors/errors"
@@ -36,13 +37,13 @@ func NewPostgresDatabase(connstring string) (MyirmaDB, error) {
 
 func (db *myirmaPostgresDB) UserID(username string) (int64, error) {
 	var id int64
-	return id, db.db.QueryUser("SELECT id FROM irma.users WHERE username = $1", []interface{}{&id}, username)
+	return id, db.db.QueryUser(nil, "SELECT id FROM irma.users WHERE username = $1", []interface{}{&id}, username)
 }
 
-func (db *myirmaPostgresDB) VerifyEmailToken(token string) (int64, error) {
+func (db *myirmaPostgresDB) VerifyEmailToken(tx keyshare.Tx, token string) (int64, error) {
 	var email string
 	var id int64
-	err := db.db.QueryScan(
+	err := db.db.QueryScan(tx.(*sql.Tx),
 		"SELECT user_id, email FROM irma.email_verification_tokens WHERE token = $1 AND expiry >= $2",
 		[]interface{}{&id, &email},
 		token, time.Now().Unix())
@@ -59,7 +60,7 @@ func (db *myirmaPostgresDB) VerifyEmailToken(token string) (int64, error) {
 	}
 
 	// Beyond this point, errors are no longer relevant for frontend, so only log
-	aff, err := db.db.ExecCount("DELETE FROM irma.email_verification_tokens WHERE token = $1", token)
+	aff, err := db.db.ExecCount(tx.(*sql.Tx), "DELETE FROM irma.email_verification_tokens WHERE token = $1", token)
 	if err != nil {
 		_ = server.LogError(err)
 		return id, nil
@@ -72,32 +73,34 @@ func (db *myirmaPostgresDB) VerifyEmailToken(token string) (int64, error) {
 }
 
 func (db *myirmaPostgresDB) RemoveUser(id int64, delay time.Duration) error {
-	return db.db.ExecUser("UPDATE irma.users SET coredata = NULL, delete_on = $2 WHERE id = $1 AND coredata IS NOT NULL",
+	return db.db.ExecUser(nil, "UPDATE irma.users SET coredata = NULL, delete_on = $2 WHERE id = $1 AND coredata IS NOT NULL",
 		id,
 		time.Now().Add(delay).Unix())
 }
 
-func (db *myirmaPostgresDB) AddEmailLoginToken(email, token string) error {
+func (db *myirmaPostgresDB) AddEmailLoginToken(tx keyshare.Tx, email, token string) (err error) {
 	// Check if email address exists in database
-	err := db.db.QueryScan("SELECT 1 FROM irma.emails WHERE email = $1 AND (delete_on >= $2 OR delete_on IS NULL) LIMIT 1",
+	err = db.db.QueryScan(tx.(*sql.Tx), "SELECT 1 FROM irma.emails WHERE email = $1 AND (delete_on >= $2 OR delete_on IS NULL) LIMIT 1",
 		nil, email, time.Now().Unix())
 	if err == sql.ErrNoRows {
-		return ErrEmailNotFound
+		err = ErrEmailNotFound
+		return
 	}
 	if err != nil {
-		return err
+		return
 	}
 
 	// insert and verify
-	aff, err := db.db.ExecCount("INSERT INTO irma.email_login_tokens (token, email, expiry) VALUES ($1, $2, $3)",
+	aff, err := db.db.ExecCount(tx.(*sql.Tx), "INSERT INTO irma.email_login_tokens (token, email, expiry) VALUES ($1, $2, $3)",
 		token,
 		email,
 		time.Now().Add(EMAIL_TOKEN_VALIDITY*time.Minute).Unix())
 	if err != nil {
-		return err
+		return
 	}
 	if aff != 1 {
-		return errors.Errorf("Unexpected number of affected rows %d on token insert", aff)
+		err = errors.Errorf("Unexpected number of affected rows %d on token insert", aff)
+		return
 	}
 
 	return nil
@@ -105,7 +108,7 @@ func (db *myirmaPostgresDB) AddEmailLoginToken(email, token string) error {
 
 func (db *myirmaPostgresDB) LoginTokenCandidates(token string) ([]LoginCandidate, error) {
 	var candidates []LoginCandidate
-	err := db.db.QueryIterate(
+	err := db.db.QueryIterate(nil,
 		`SELECT username, last_seen FROM irma.users INNER JOIN irma.emails ON users.id = emails.user_id WHERE
 		     (emails.delete_on >= $2 OR emails.delete_on is NULL) AND
 		          emails.email = (SELECT email FROM irma.email_login_tokens WHERE token = $1 AND expiry >= $2);`,
@@ -125,9 +128,9 @@ func (db *myirmaPostgresDB) LoginTokenCandidates(token string) ([]LoginCandidate
 	return candidates, nil
 }
 
-func (db *myirmaPostgresDB) TryUserLoginToken(token, username string) (int64, error) {
+func (db *myirmaPostgresDB) TryUserLoginToken(tx keyshare.Tx, token, username string) (int64, error) {
 	var id int64
-	err := db.db.QueryUser(
+	err := db.db.QueryUser(tx.(*sql.Tx),
 		`SELECT users.id FROM irma.users INNER JOIN irma.emails ON users.id = emails.user_id WHERE
 		     username = $1 AND (emails.delete_on >= $3 OR emails.delete_on IS NULL) AND
 		     email = (SELECT email FROM irma.email_login_tokens WHERE token = $2 AND expiry >= $3)`,
@@ -136,7 +139,7 @@ func (db *myirmaPostgresDB) TryUserLoginToken(token, username string) (int64, er
 		return 0, err
 	}
 
-	aff, err := db.db.ExecCount("DELETE FROM irma.email_login_tokens WHERE token = $1", token)
+	aff, err := db.db.ExecCount(tx.(*sql.Tx), "DELETE FROM irma.email_login_tokens WHERE token = $1", token)
 	if err != nil {
 		return 0, err
 	}
@@ -150,7 +153,7 @@ func (db *myirmaPostgresDB) UserInformation(id int64) (UserInformation, error) {
 	var result UserInformation
 
 	// fetch username
-	err := db.db.QueryUser("SELECT username, language, (coredata IS NULL) AS delete_in_progress FROM irma.users WHERE id = $1",
+	err := db.db.QueryUser(nil, "SELECT username, language, (coredata IS NULL) AS delete_in_progress FROM irma.users WHERE id = $1",
 		[]interface{}{&result.Username, &result.language, &result.DeleteInProgress},
 		id)
 	if err != nil {
@@ -158,7 +161,7 @@ func (db *myirmaPostgresDB) UserInformation(id int64) (UserInformation, error) {
 	}
 
 	// fetch email addresses
-	err = db.db.QueryIterate(
+	err = db.db.QueryIterate(nil,
 		"SELECT email, (delete_on IS NOT NULL) AS delete_in_progress FROM irma.emails WHERE user_id = $1 AND (delete_on >= $2 OR delete_on IS NULL)",
 		func(rows *sql.Rows) error {
 			var email UserEmail
@@ -175,7 +178,7 @@ func (db *myirmaPostgresDB) UserInformation(id int64) (UserInformation, error) {
 
 func (db *myirmaPostgresDB) Logs(id int64, offset, amount int) ([]LogEntry, error) {
 	var result []LogEntry
-	err := db.db.QueryIterate(
+	err := db.db.QueryIterate(nil,
 		"SELECT time, event, param FROM irma.log_entry_records WHERE user_id = $1 ORDER BY time DESC OFFSET $2 LIMIT $3",
 		func(rows *sql.Rows) error {
 			var curEntry LogEntry
@@ -192,7 +195,7 @@ func (db *myirmaPostgresDB) Logs(id int64, offset, amount int) ([]LogEntry, erro
 
 func (db *myirmaPostgresDB) AddEmail(id int64, email string) error {
 	// Try to restore email in process of deletion
-	aff, err := db.db.ExecCount("UPDATE irma.emails SET delete_on = NULL WHERE user_id = $1 AND email = $2", id, email)
+	aff, err := db.db.ExecCount(nil, "UPDATE irma.emails SET delete_on = NULL WHERE user_id = $1 AND email = $2", id, email)
 	if err != nil {
 		return err
 	}
@@ -201,12 +204,12 @@ func (db *myirmaPostgresDB) AddEmail(id int64, email string) error {
 	}
 
 	// Fall back to adding new one
-	_, err = db.db.Exec("INSERT INTO irma.emails (user_id, email) VALUES ($1, $2)", id, email)
+	_, err = db.db.ExecCount(nil, "INSERT INTO irma.emails (user_id, email) VALUES ($1, $2)", id, email)
 	return err
 }
 
 func (db *myirmaPostgresDB) RemoveEmail(id int64, email string, delay time.Duration) error {
-	aff, err := db.db.ExecCount("UPDATE irma.emails SET delete_on = $3 WHERE user_id = $1 AND email = $2 AND delete_on IS NULL",
+	aff, err := db.db.ExecCount(nil, "UPDATE irma.emails SET delete_on = $3 WHERE user_id = $1 AND email = $2 AND delete_on IS NULL",
 		id,
 		email,
 		time.Now().Add(delay).Unix())
@@ -219,6 +222,29 @@ func (db *myirmaPostgresDB) RemoveEmail(id int64, email string, delay time.Durat
 	return nil
 }
 
-func (db *myirmaPostgresDB) SetSeen(id int64) error {
-	return db.db.ExecUser("UPDATE irma.users SET last_seen = $1 WHERE id = $2", time.Now().Unix(), id)
+func (db *myirmaPostgresDB) SetSeen(tx keyshare.Tx, id int64) error {
+	return db.db.ExecUser(tx.(*sql.Tx), "UPDATE irma.users SET last_seen = $1 WHERE id = $2", time.Now().Unix(), id)
+}
+
+func (db *myirmaPostgresDB) Tx(
+	w http.ResponseWriter, r *http.Request,
+	f func(tx keyshare.Tx) (server.Error, string),
+) {
+	tx, err := db.db.BeginTx(r.Context(), nil)
+	if err != nil {
+		server.Logger.WithField("error", err).Error("Error starting DB transaction")
+		server.WriteError(w, server.ErrorInternal, err.Error())
+		return
+	}
+	if e, msg := f(tx); e != (server.Error{}) {
+		_ = tx.Rollback()
+		server.WriteError(w, e, msg)
+		return
+	}
+
+	// TODO: modify interface: if f was succesful, then the header is already written here
+	if err = tx.Commit(); err != nil {
+		server.Logger.WithField("error", err).Error("Error committing DB transaction")
+		server.WriteError(w, server.ErrorInternal, err.Error())
+	}
 }

@@ -1,24 +1,33 @@
 package myirmaserver
 
 import (
+	"net/http"
 	"time"
+
+	"github.com/privacybydesign/irmago/server"
+	"github.com/privacybydesign/irmago/server/keyshare"
 )
 
 type MyirmaDB interface {
 	UserID(username string) (int64, error)
-	VerifyEmailToken(token string) (int64, error)
+	VerifyEmailToken(tx keyshare.Tx, token string) (int64, error)
 	RemoveUser(id int64, delay time.Duration) error
 
-	AddEmailLoginToken(email, token string) error
+	AddEmailLoginToken(tx keyshare.Tx, email, token string) error
 	LoginTokenCandidates(token string) ([]LoginCandidate, error)
-	TryUserLoginToken(token, username string) (int64, error)
+	TryUserLoginToken(tx keyshare.Tx, token, username string) (int64, error)
 
 	UserInformation(id int64) (UserInformation, error)
 	Logs(id int64, offset int, amount int) ([]LogEntry, error)
 	AddEmail(id int64, email string) error
 	RemoveEmail(id int64, email string, delay time.Duration) error
 
-	SetSeen(id int64) error
+	SetSeen(tx keyshare.Tx, id int64) error
+
+	Tx(
+		w http.ResponseWriter, r *http.Request,
+		f func(tx keyshare.Tx) (server.Error, string),
+	)
 }
 
 type UserEmail struct {

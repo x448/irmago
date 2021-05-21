@@ -207,9 +207,9 @@ type EmailLoginRequest struct {
 	Language string `json:"language"`
 }
 
-func (s *Server) sendLoginEmail(request EmailLoginRequest) error {
+func (s *Server) sendLoginEmail(tx keyshare.Tx, request EmailLoginRequest) error {
 	token := common.NewSessionToken()
-	err := s.db.AddEmailLoginToken(request.Email, token)
+	err := s.db.AddEmailLoginToken(tx, request.Email, token)
 	if err == ErrEmailNotFound {
 		return err
 	} else if err != nil {
@@ -239,18 +239,18 @@ func (s *Server) handleEmailLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := s.sendLoginEmail(request)
-	if err == ErrEmailNotFound {
-		server.WriteError(w, server.ErrorUserNotRegistered, "")
-		return
-	}
-	if err != nil {
-		// already logged
-		server.WriteError(w, server.ErrorInternal, err.Error())
-		return
-	}
+	s.db.Tx(w, r, func(tx keyshare.Tx) (server.Error, string) {
+		err := s.sendLoginEmail(tx, request)
+		if err == ErrEmailNotFound {
+			return server.ErrorUserNotRegistered, ""
+		}
+		if err != nil {
+			return server.ErrorInternal, err.Error()
+		}
 
-	w.WriteHeader(http.StatusNoContent) // No need for content.
+		w.WriteHeader(http.StatusNoContent) // No need for content.
+		return server.Error{}, ""
+	})
 }
 
 func (s *Server) handleGetCandidates(w http.ResponseWriter, r *http.Request) {
@@ -278,8 +278,8 @@ type TokenLoginRequest struct {
 	Username string `json:"username"`
 }
 
-func (s *Server) processTokenLogin(request TokenLoginRequest) (string, error) {
-	id, err := s.db.TryUserLoginToken(request.Token, request.Username)
+func (s *Server) processTokenLogin(tx keyshare.Tx, request TokenLoginRequest) (string, error) {
+	id, err := s.db.TryUserLoginToken(tx, request.Token, request.Username)
 	if err == keyshare.ErrUserNotFound {
 		return "", err
 	}
@@ -291,7 +291,7 @@ func (s *Server) processTokenLogin(request TokenLoginRequest) (string, error) {
 	session := s.store.create()
 	session.userID = &id
 
-	err = s.db.SetSeen(id)
+	err = s.db.SetSeen(tx, id)
 	if err != nil {
 		s.conf.Logger.WithField("error", err).Error("Could not update users last seen date/time")
 		// not relevant for frontend, so ignore beyond log.
@@ -301,26 +301,29 @@ func (s *Server) processTokenLogin(request TokenLoginRequest) (string, error) {
 }
 
 func (s *Server) handleTokenLogin(w http.ResponseWriter, r *http.Request) {
-	var request TokenLoginRequest
-	if err := server.ParseBody(w, r, &request); err != nil {
+	var (
+		request TokenLoginRequest
+		err     error
+	)
+	if err = server.ParseBody(w, r, &request); err != nil {
 		server.WriteError(w, server.ErrorInvalidRequest, err.Error())
 		return
 	}
 
-	token, err := s.processTokenLogin(request)
+	var token string
+	s.db.Tx(w, r, func(tx keyshare.Tx) (server.Error, string) {
+		token, err = s.processTokenLogin(tx, request)
+		if err == keyshare.ErrUserNotFound {
+			return server.ErrorInvalidRequest, "Invalid login request"
+		}
+		if err != nil {
+			return server.ErrorInternal, err.Error()
+		}
 
-	if err == keyshare.ErrUserNotFound {
-		server.WriteError(w, server.ErrorInvalidRequest, "Invalid login request")
-		return
-	}
-	if err != nil {
-		// already logged
-		server.WriteError(w, server.ErrorInternal, err.Error())
-		return
-	}
-
-	s.setCookie(w, token, s.conf.SessionLifetime)
-	w.WriteHeader(http.StatusNoContent)
+		s.setCookie(w, token, s.conf.SessionLifetime)
+		w.WriteHeader(http.StatusNoContent)
+		return server.Error{}, ""
+	})
 }
 
 func (s *Server) processLoginIrmaSessionResult(sessiontoken string, result *server.SessionResult) {
@@ -358,7 +361,7 @@ func (s *Server) processLoginIrmaSessionResult(sessiontoken string, result *serv
 
 	session.userID = &id
 
-	err = s.db.SetSeen(id)
+	err = s.db.SetSeen(nil, id)
 	if err != nil {
 		s.conf.Logger.WithField("error", err).Error("Could not update users last seen time/date")
 		// not relevant for frontend, so ignore beyond log.
@@ -391,28 +394,32 @@ func (s *Server) handleVerifyEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id, err := s.db.VerifyEmailToken(token)
-	if err == ErrTokenNotFound {
-		s.conf.Logger.Info("Unknown email verification token")
-		server.WriteError(w, server.ErrorInvalidRequest, "Unknown email verification token")
-		return
-	} else if err != nil {
-		s.conf.Logger.WithField("error", err).Error("Could not verify email token")
-		server.WriteError(w, server.ErrorInvalidRequest, "could not verify email token")
-		return
-	}
+	var (
+		id  int64
+		err error
+	)
+	s.db.Tx(w, r, func(tx keyshare.Tx) (server.Error, string) {
+		id, err = s.db.VerifyEmailToken(tx, token)
+		if err == ErrTokenNotFound {
+			s.conf.Logger.Info("Unknown email verification token")
+			return server.ErrorInvalidRequest, "Unknown email verification token"
+		} else if err != nil {
+			s.conf.Logger.WithField("error", err).Error("Could not verify email token")
+			return server.ErrorInvalidRequest, "could not verify email token"
+		}
 
-	session := s.store.create()
-	session.userID = &id
+		session := s.store.create()
+		session.userID = &id
+		s.setCookie(w, session.token, s.conf.SessionLifetime)
+		w.WriteHeader(http.StatusNoContent)
 
-	err = s.db.SetSeen(id)
-	if err != nil {
+		return server.Error{}, ""
+	})
+
+	if err = s.db.SetSeen(nil, id); err != nil {
 		s.conf.Logger.WithField("error", err).Error("Could not update users last seen time/date")
 		// not relevant for frontend, so ignore beyond log.
 	}
-
-	s.setCookie(w, session.token, s.conf.SessionLifetime)
-	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) logoutUser(w http.ResponseWriter, r *http.Request) {

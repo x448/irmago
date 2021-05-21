@@ -3,6 +3,7 @@
 package myirmaserver
 
 import (
+	"database/sql"
 	"testing"
 	"time"
 
@@ -32,7 +33,7 @@ func TestPostgresDBUserManagement(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, []UserEmail(nil), user.Emails)
 
-	id, err = db.VerifyEmailToken("testtoken")
+	id, err = db.VerifyEmailToken((*sql.Tx)(nil), "testtoken")
 	assert.NoError(t, err)
 	assert.Equal(t, int64(15), id)
 
@@ -40,16 +41,16 @@ func TestPostgresDBUserManagement(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, []UserEmail{{Email: "test@test.com", DeleteInProgress: false}}, user.Emails)
 
-	_, err = db.VerifyEmailToken("testtoken")
+	_, err = db.VerifyEmailToken((*sql.Tx)(nil), "testtoken")
 	assert.Error(t, err)
 
 	_, err = db.UserID("DNE")
 	assert.Error(t, err)
 
-	err = db.SetSeen(15)
+	err = db.SetSeen((*sql.Tx)(nil), 15)
 	assert.NoError(t, err)
 
-	err = db.SetSeen(123456)
+	err = db.SetSeen((*sql.Tx)(nil), 123456)
 	assert.Error(t, err)
 
 	err = db.RemoveUser(15, 0)
@@ -74,10 +75,10 @@ func TestPostgresDBLoginToken(t *testing.T) {
 	_, err = pdb.db.Exec("INSERT INTO irma.emails (user_id, email) VALUES (15, 'test@test.com')")
 	require.NoError(t, err)
 
-	err = db.AddEmailLoginToken("test2@test.com", "test2token")
+	err = db.AddEmailLoginToken((*sql.Tx)(nil), "test2@test.com", "test2token")
 	assert.Error(t, err)
 
-	err = db.AddEmailLoginToken("test@test.com", "testtoken")
+	err = db.AddEmailLoginToken((*sql.Tx)(nil), "test@test.com", "testtoken")
 	require.NoError(t, err)
 
 	cand, err := db.LoginTokenCandidates("testtoken")
@@ -85,7 +86,7 @@ func TestPostgresDBLoginToken(t *testing.T) {
 	assert.Equal(t, []LoginCandidate{{Username: "testuser", LastActive: 0}}, cand)
 
 	currenttime := time.Now().Unix()
-	require.NoError(t, db.SetSeen(int64(15)))
+	require.NoError(t, db.SetSeen((*sql.Tx)(nil), int64(15)))
 	cand, err = db.LoginTokenCandidates("testtoken")
 	assert.NoError(t, err)
 	assert.Equal(t, []LoginCandidate{{Username: "testuser", LastActive: currenttime}}, cand)
@@ -93,21 +94,21 @@ func TestPostgresDBLoginToken(t *testing.T) {
 	_, err = db.LoginTokenCandidates("DNE")
 	assert.Error(t, err)
 
-	_, err = db.TryUserLoginToken("testtoken", "DNE")
+	_, err = db.TryUserLoginToken((*sql.Tx)(nil), "testtoken", "DNE")
 	assert.Error(t, err)
 
-	_, err = db.TryUserLoginToken("testtoken", "noemail")
+	_, err = db.TryUserLoginToken((*sql.Tx)(nil), "testtoken", "noemail")
 	assert.Error(t, err)
 
-	id, err := db.TryUserLoginToken("testtoken", "testuser")
+	id, err := db.TryUserLoginToken((*sql.Tx)(nil), "testtoken", "testuser")
 	assert.NoError(t, err)
 	assert.Equal(t, int64(15), id)
 
-	_, err = db.TryUserLoginToken("testtoken", "testuser")
+	_, err = db.TryUserLoginToken((*sql.Tx)(nil), "testtoken", "testuser")
 	assert.Error(t, err)
 
 	assert.NoError(t, db.AddEmail(17, "test@test.com"))
-	assert.NoError(t, db.AddEmailLoginToken("test@test.com", "testtoken"))
+	assert.NoError(t, db.AddEmailLoginToken((*sql.Tx)(nil), "test@test.com", "testtoken"))
 	cand, err = db.LoginTokenCandidates("testtoken")
 	assert.NoError(t, err)
 	assert.Equal(t, []LoginCandidate{

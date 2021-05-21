@@ -9,20 +9,33 @@ import (
 
 var ErrUserNotFound = errors.New("Could not find specified user")
 
+type Tx interface {
+	Commit() error
+	Rollback() error
+}
+
 type DB struct {
 	*sql.DB
 }
 
-func (db *DB) ExecCount(query string, args ...interface{}) (int64, error) {
-	res, err := db.Exec(query, args...)
+func (db *DB) ExecCount(tx *sql.Tx, query string, args ...interface{}) (int64, error) {
+	var (
+		res sql.Result
+		err error
+	)
+	if tx != nil {
+		res, err = tx.Exec(query, args...)
+	} else {
+		res, err = db.Exec(query, args...)
+	}
 	if err != nil {
 		return 0, err
 	}
 	return res.RowsAffected()
 }
 
-func (db *DB) ExecUser(query string, args ...interface{}) error {
-	c, err := db.ExecCount(query, args...)
+func (db *DB) ExecUser(tx *sql.Tx, query string, args ...interface{}) error {
+	c, err := db.ExecCount(tx, query, args...)
 	if err != nil {
 		return err
 	}
@@ -32,8 +45,16 @@ func (db *DB) ExecUser(query string, args ...interface{}) error {
 	return nil
 }
 
-func (db *DB) QueryScan(query string, results []interface{}, args ...interface{}) error {
-	res, err := db.Query(query, args...)
+func (db *DB) QueryScan(tx *sql.Tx, query string, results []interface{}, args ...interface{}) error {
+	var (
+		res *sql.Rows
+		err error
+	)
+	if tx != nil {
+		res, err = tx.Query(query, args...)
+	} else {
+		res, err = db.Query(query, args...)
+	}
 	if err != nil {
 		return err
 	}
@@ -54,16 +75,24 @@ func (db *DB) QueryScan(query string, results []interface{}, args ...interface{}
 	return nil
 }
 
-func (db *DB) QueryUser(query string, results []interface{}, args ...interface{}) error {
-	err := db.QueryScan(query, results, args...)
+func (db *DB) QueryUser(tx *sql.Tx, query string, results []interface{}, args ...interface{}) error {
+	err := db.QueryScan(tx, query, results, args...)
 	if err == sql.ErrNoRows {
 		return ErrUserNotFound
 	}
 	return err
 }
 
-func (db *DB) QueryIterate(query string, f func(rows *sql.Rows) error, args ...interface{}) error {
-	res, err := db.Query(query, args...)
+func (db *DB) QueryIterate(tx *sql.Tx, query string, f func(rows *sql.Rows) error, args ...interface{}) error {
+	var (
+		res *sql.Rows
+		err error
+	)
+	if tx != nil {
+		res, err = tx.Query(query, args...)
+	} else {
+		res, err = db.Query(query, args...)
+	}
 	if err != nil {
 		return err
 	}

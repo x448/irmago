@@ -1,9 +1,11 @@
 package myirmaserver
 
 import (
+	"net/http"
 	"sync"
 	"time"
 
+	"github.com/privacybydesign/irmago/server"
 	"github.com/privacybydesign/irmago/server/keyshare"
 )
 
@@ -21,6 +23,8 @@ type myirmaMemoryDB struct {
 	loginEmailTokens  map[string]string
 	verifyEmailTokens map[string]int64
 }
+
+type trivialTx struct{}
 
 func NewMyirmaMemoryDB() MyirmaDB {
 	return &myirmaMemoryDB{
@@ -52,7 +56,7 @@ func (db *myirmaMemoryDB) RemoveUser(id int64, _ time.Duration) error {
 	return keyshare.ErrUserNotFound
 }
 
-func (db *myirmaMemoryDB) VerifyEmailToken(token string) (int64, error) {
+func (db *myirmaMemoryDB) VerifyEmailToken(tx keyshare.Tx, token string) (int64, error) {
 	db.lock.Lock()
 	defer db.lock.Unlock()
 
@@ -66,7 +70,7 @@ func (db *myirmaMemoryDB) VerifyEmailToken(token string) (int64, error) {
 	return userID, nil
 }
 
-func (db *myirmaMemoryDB) AddEmailLoginToken(email, token string) error {
+func (db *myirmaMemoryDB) AddEmailLoginToken(tx keyshare.Tx, email, token string) error {
 	db.lock.Lock()
 	defer db.lock.Unlock()
 
@@ -112,7 +116,7 @@ func (db *myirmaMemoryDB) LoginTokenCandidates(token string) ([]LoginCandidate, 
 	return result, nil
 }
 
-func (db *myirmaMemoryDB) TryUserLoginToken(token, username string) (int64, error) {
+func (db *myirmaMemoryDB) TryUserLoginToken(tx keyshare.Tx, token, username string) (int64, error) {
 	db.lock.Lock()
 	defer db.lock.Unlock()
 
@@ -209,7 +213,7 @@ func (db *myirmaMemoryDB) RemoveEmail(id int64, email string, _ time.Duration) e
 	return keyshare.ErrUserNotFound
 }
 
-func (db *myirmaMemoryDB) SetSeen(id int64) error {
+func (db *myirmaMemoryDB) SetSeen(tx keyshare.Tx, id int64) error {
 	db.lock.Lock()
 	defer db.lock.Unlock()
 	for username, user := range db.userData {
@@ -221,3 +225,13 @@ func (db *myirmaMemoryDB) SetSeen(id int64) error {
 	}
 	return keyshare.ErrUserNotFound
 }
+
+func (db *myirmaMemoryDB) Tx(w http.ResponseWriter, r *http.Request, f func(tx keyshare.Tx) (server.Error, string)) {
+	if err, msg := f(trivialTx{}); err != (server.Error{}) {
+		server.WriteError(w, err, msg)
+	}
+}
+
+func (trivialTx) Commit() error { return nil }
+
+func (trivialTx) Rollback() error { return nil }
